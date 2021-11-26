@@ -1,0 +1,27 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "/opt/st/stm32cubeide_1.6.1/plugins/**",
+                "/opt/st/stm32cubeide_1.6.1/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.9-2020-q2-update.linux64_1.5.0.202011040924/tools/arm-none-eabi/include",
+                "/home/janoko/Project/STM32/4xx_drivers/f411_driver_tester/Drivers/CMSIS/Include",
+                "/home/janoko/Project/STM32/4xx_drivers/f411_driver_tester/Drivers/CMSIS/Device/ST/STM32F4xx/Include",
+                "/home/janoko/Project/STM32/4xx_drivers/f411_driver_tester/Drivers/STM32F4xx_HAL_Driver/Inc",
+                "/home/janoko/Project/STM32/4xx_drivers/f411_driver_tester/Core/Inc",
+                "${workspaceFolder}/Inc"
+            ],
+            "forcedInclude": [
+                "/home/janoko/Project/STM32/4xx_drivers/f411_driver_tester/Core/Inc/stm32f4xx_hal_conf.h"
+            ],
+            "defines": [
+                "STM32F411xE"
+            ],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "gnu17",
+            "cppStandard": "gnu++14",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}

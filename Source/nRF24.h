@@ -9,13 +9,13 @@
 #define DRIVER_INC_NRF24_H_
 
 #include "stm32f4xx_hal.h"
+#include "nRF24_conf.h"
 
-#define NRF24_PIPE_NUMBER 6
 #define NRF24_PIPE_ENABLE 0x80
 #define NRF24_PIPE_ENABLE_AUTO_ACK 0x40
 #define NRF24_PIPE_WIDTH 0x3F
 
-#define NRF24_BUFFER_SIZE 64
+#define NRF24_STATUS_TRANSMITTING 0x01
 
 #define NRF24_CMD_R_REGISTER 0x00
 #define NRF24_CMD_W_REGISTER 0x20
@@ -57,9 +57,16 @@
 #define NRF24_ADDR_FEATURE 0x1D
 #define NRF24_ADDR_MAX 0x1E
 
+#define NRF24_RF_SETUP_DATA_RATE 0x28
 #define NRF24_DATA_RATE_250Kbps 0x20
 #define NRF24_DATA_RATE_1Mbps 0x00
 #define NRF24_DATA_RATE_2Mbps 0x08
+
+#define NRF24_RF_SETUP_POWER 0x06
+#define NRF24_POWER_M18DBM 0x00
+#define NRF24_POWER_M12DBM 0x02
+#define NRF24_POWER_M6DBM 0x04
+#define NRF24_POWER_0DBM 0x06
 
 #define NRF24_STATUS_RX_DR 0x40
 #define NRF24_STATUS_TX_DS 0x20
@@ -79,6 +86,9 @@
 #define NRF24_MODE_RX 0x04
 
 #define NRF24_IS(byte, bits) (((byte) & (bits)) == (bits))
+#define NRF24_IS_STATUS(nrf24, stat) NRF24_IS((nrf24)->status, (stat))
+#define NRF24_SET_STATUS(nrf24, stat) { (nrf24)->status |= (stat); }
+#define NRF24_UNSET_STATUS(nrf24, stat) { (nrf24)->status &= ~(stat); }
 
 //#define NRF24_GPIO_SET(pin) (HAL_GPIO_WritePin((pin).GPIOx, (pin).GPIO_Pin, GPIO_PIN_SET))
 //#define NRF24_GPIO_RESET(pin) (HAL_GPIO_WritePin((pin).GPIOx, (pin).GPIO_Pin, GPIO_PIN_RESET))
@@ -86,7 +96,7 @@
 typedef uint8_t NRF24_Mode;
 
 struct NRF24_GPIO_pin {
-  GPIO_TypeDef* GPIOx;
+  GPIO_TypeDef *GPIOx;
   uint16_t GPIO_Pin;
 };
 
@@ -98,12 +108,12 @@ typedef struct NRF24_Buffer {
 } NRF24_Buffer;
 
 typedef struct NRF24_Pipe {
-  uint8_t setup;       // #7(reg: EN_RXADDR) #6(reg: EN_AA) #5:0(reg: RX_PW_Px)
-  uint8_t *address;    // reg: RX_ADDR_Px
+  uint8_t setup;          // #7(reg: EN_RXADDR) #6(reg: EN_AA) #5:0(reg: RX_PW_Px)
+  uint8_t address[5];     // reg: RX_ADDR_Px
 } NRF24_Pipe;
 
 typedef struct NRF24_Handler {
-  uint8_t state;
+  uint8_t status;
 
   // pin
   SPI_HandleTypeDef *hspi;
@@ -114,11 +124,13 @@ typedef struct NRF24_Handler {
 
   // configuration
   uint8_t channel;              		  // reg: RF_CH
-  uint8_t datarate;            			  // reg: RF_SETUP (#5 #3)
+  uint8_t datarate;                   // reg: RF_SETUP (#5 #3)
+  uint8_t power;                      // reg: RF_SETUP (#2 #1)
   uint8_t retransmitDelay;        		// reg: SETUP_RETR (#7:4)
   uint8_t retransmitMax;          		// reg: SETUP_RETR (#7:4)
   uint8_t txAddress;            	    // reg: TX_ADDR
-  uint8_t txPayloadWidth;  
+  uint8_t txPayloadWidth;
+  uint8_t pipeNumber;
   NRF24_Pipe pipe[NRF24_PIPE_NUMBER];
   uint8_t feature;
   // struct {
@@ -130,38 +142,37 @@ typedef struct NRF24_Handler {
   // buffer
   NRF24_Buffer buffer;
 
-} NRF24_Handler;
-
-
-extern NRF24_Handler hnrf24_1;
-extern NRF24_Handler hnrf24_2;
+} NRF24_HandlerTypedef;
 
 // setup
-
-void NRF24_SetupPipe(NRF24_Handler *hnrf24, uint8_t pipeIndex, uint8_t setup, uint8_t width);
-void NRF24_SetupPipeAddress(NRF24_Handler *hnrf24, uint8_t pipeIndex, uint8_t *address);
-void NRF24_SetupFeature(NRF24_Handler *hnrf24, uint8_t feature);
+void NRF24_SetupFeature(NRF24_HandlerTypedef *hnrf24, uint8_t feature);
+void NRF24_Wait(uint32_t ms);
 
 // running proccess
 
-void NRF24_Init(NRF24_Handler *hnrf24);
-void NRF24_SetMode(NRF24_Handler *hnrf24, NRF24_Mode mode);
-void NRF24_SendData(NRF24_Handler *hnrf24, uint8_t *data, uint8_t size);
-void NRF24_SendDataNoAck(NRF24_Handler *hnrf24, uint8_t *data, uint8_t size);
-uint8_t NRF24_ReadData(NRF24_Handler *hnrf24, uint8_t *data, uint8_t size);
-void NRF24_RxInteruptHandler(NRF24_Handler *hnrf24);
-void NRF24_ResetInterupt(NRF24_Handler *hnrf24, uint8_t interupt_register);
+void NRF24_Init(NRF24_HandlerTypedef *hnrf24);
+HAL_StatusTypeDef NRF24_Check(NRF24_HandlerTypedef *hnrf24);
+void NRF24_SetPipe(NRF24_HandlerTypedef *hnrf24,
+                     uint8_t pipeIndex, uint8_t setup, uint8_t width, uint8_t *addr);
+void NRF24_SetTxAddress(NRF24_HandlerTypedef *hnrf24, uint8_t *addr);
+void NRF24_SetMode(NRF24_HandlerTypedef *hnrf24, NRF24_Mode mode);
+void NRF24_SendData(NRF24_HandlerTypedef *hnrf24, uint8_t *data, uint8_t size);
+void NRF24_SendDataNoAck(NRF24_HandlerTypedef *hnrf24, uint8_t *data, uint8_t size);
+uint8_t NRF24_ReadData(NRF24_HandlerTypedef *hnrf24, uint8_t *data, uint8_t size);
+void NRF24_FlushData(NRF24_HandlerTypedef *hnrf24);
+uint8_t NRF24_InterruptHandler(NRF24_HandlerTypedef *hnrf24);
+void NRF24_ResetInterupt(NRF24_HandlerTypedef *hnrf24, uint8_t interupt_register);
 
 // spi command
 
-void NRF24_ReadRegister(NRF24_Handler *hnrf24, uint8_t addr, uint8_t *result);
-void NRF24_WriteRegister(NRF24_Handler *hnrf24, uint8_t addr, uint8_t *value);
-uint8_t NRF24_ReadPayload(NRF24_Handler *hnrf24, uint8_t pipeIndex, uint8_t *result);
-uint8_t NRF24_RecivedPayloadWidth(NRF24_Handler *hnrf24);
-void NRF24_WritePayload(NRF24_Handler *hnrf24, uint8_t *value, uint8_t size);
-void NRF24_WritePayloadNoAck(NRF24_Handler *hnrf24, uint8_t *value, uint8_t size);
-void NRF24_FlushRx(NRF24_Handler *hnrf24);
-void NRF24_FlushTx(NRF24_Handler *hnrf24);
-void NRF24_WriteAck(NRF24_Handler *hnrf24, uint8_t *value, uint8_t size);
+void NRF24_ReadRegister(NRF24_HandlerTypedef *hnrf24, uint8_t addr, uint8_t *result);
+void NRF24_WriteRegister(NRF24_HandlerTypedef *hnrf24, uint8_t addr, uint8_t *value);
+uint8_t NRF24_ReadPayload(NRF24_HandlerTypedef *hnrf24, uint8_t pipeIndex, uint8_t *result);
+uint8_t NRF24_RecivedPayloadWidth(NRF24_HandlerTypedef *hnrf24);
+void NRF24_WritePayload(NRF24_HandlerTypedef *hnrf24, uint8_t *value, uint8_t size);
+void NRF24_WritePayloadNoAck(NRF24_HandlerTypedef *hnrf24, uint8_t *value, uint8_t size);
+void NRF24_FlushRx(NRF24_HandlerTypedef *hnrf24);
+void NRF24_FlushTx(NRF24_HandlerTypedef *hnrf24);
+void NRF24_WriteAck(NRF24_HandlerTypedef *hnrf24, uint8_t *value, uint8_t size);
 
 #endif /* DRIVER_INC_NRF24_H_ */
