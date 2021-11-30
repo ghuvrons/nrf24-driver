@@ -32,12 +32,17 @@ static uint8_t readBuffer(NRF24_Buffer *buffer, uint8_t *data, uint8_t size);
   */
 void NRF24_SetupFeature(NRF24_HandlerTypedef *hnrf24, uint8_t feature)
 {
-  hnrf24->feature &= feature;
+  hnrf24->feature |= feature;
 }
 
 __weak void NRF24_Wait(uint32_t ms)
 {
   HAL_Delay(ms);
+}
+
+__weak uint32_t NRF24_GetTick(void)
+{
+  return HAL_GetTick();
 }
 
 /**
@@ -73,17 +78,18 @@ void NRF24_Init(NRF24_HandlerTypedef *hnrf24)
   NRF24_WriteRegister(hnrf24, NRF24_ADDR_RF_SETUP, &(tmp_reg));
 
   // TODO: set retransmitting
-//  if (hnrf24->retransmitMax == 0x00) hnrf24->retransmitMax = 0x03;  // default
-//  else if (hnrf24->retransmitMax & 0xF0) hnrf24->retransmitMax = 0;
-//
-//  tmp_reg = hnrf24->retransmitMax & 0x0F;
-//  NRF24_WriteRegister(hnrf24, NRF24_ADDR_RF_SETUP, &(tmp_reg));
+  if (hnrf24->retransmitDelay == 0) hnrf24->retransmitDelay = 0x10;
+  tmp_reg = hnrf24->retransmitDelay & 0xF0;
+  tmp_reg |= hnrf24->retransmitCount & 0x0F;
+  NRF24_WriteRegister(hnrf24, NRF24_ADDR_SETUP_RETR, &(tmp_reg));
+
+  if (hnrf24->sendingTimeout == 0) hnrf24->sendingTimeout = 1000;
 
   // set feature
   NRF24_WriteRegister(hnrf24, NRF24_ADDR_FEATURE, &(hnrf24->feature));  
 
   // reset interupt
-  NRF24_ResetInterupt(hnrf24, NRF24_STATUS_RX_DR | NRF24_STATUS_TX_DS | NRF24_STATUS_MAX_RT);
+  NRF24_ResetIrq(hnrf24, NRF24_STATUS_RX_DR | NRF24_STATUS_TX_DS | NRF24_STATUS_MAX_RT);
 
   // reset fifo
   NRF24_FlushTx(hnrf24);
@@ -182,6 +188,7 @@ void NRF24_SetTxAddress(NRF24_HandlerTypedef *hnrf24, uint8_t *addr)
 void NRF24_SetMode(NRF24_HandlerTypedef *hnrf24, NRF24_Mode mode)
 {
   uint8_t config_reg;
+  if (hnrf24->mode == mode) return;
 
   NRF24_ReadRegister(hnrf24, NRF24_ADDR_CONFIG, &config_reg);
 
@@ -220,29 +227,72 @@ void NRF24_SetMode(NRF24_HandlerTypedef *hnrf24, NRF24_Mode mode)
     }
     HAL_GPIO_WritePin((hnrf24->pin.CE).GPIOx, (hnrf24->pin.CE).GPIO_Pin, GPIO_PIN_SET);
     break;
-
   }
-  NRF24_Wait(2);
+
+  if (hnrf24->mode == NRF24_MODE_PWR_DOWN) NRF24_Wait(1);
+  NRF24_Wait(1);
+  hnrf24->mode = mode;
 }
 
 
-void NRF24_SendData(NRF24_HandlerTypedef *hnrf24, uint8_t *data, uint8_t size)
+HAL_StatusTypeDef NRF24_SendData(NRF24_HandlerTypedef *hnrf24, uint8_t *data, uint8_t size, uint8_t withAcK)
 {
-  if (size != hnrf24->txPayloadWidth) size = hnrf24->txPayloadWidth;
-  NRF24_SET_STATUS(hnrf24, NRF24_STATUS_TRANSMITTING);
-  NRF24_WritePayload(hnrf24, data, size);
-  NRF24_SetMode(hnrf24, NRF24_MODE_TX);
-  while(NRF24_IS_STATUS(hnrf24, NRF24_STATUS_TRANSMITTING)) {
+  HAL_StatusTypeDef result = HAL_TIMEOUT;
+  uint32_t tick = NRF24_GetTick();
+
+  while ( NRF24_IS_STATUS(hnrf24, NRF24_STATUS_TRANSMITTING) ||
+          NRF24_IS_STATUS(hnrf24, NRF24_STATUS_TRANSMITTED)
+  ) {
+    if (NRF24_GetTick() - tick > hnrf24->sendingTimeout) {
+      return result;
+    }
     NRF24_Wait(1);
   }
+
+  NRF24_SET_STATUS(hnrf24, NRF24_STATUS_TRANSMITTING);
+  NRF24_SetMode(hnrf24, NRF24_MODE_STANDBY_1);
+
+  if (withAcK)
+    NRF24_WritePayload(hnrf24, data, size);
+  else
+    NRF24_WritePayloadNoAck(hnrf24, data, size);
+  NRF24_SetMode(hnrf24, NRF24_MODE_TX);
+
+  // if interrupt is disable
+  if (!NRF24_IS(hnrf24->irqEnabled, NRF24_IRQ_TX)) {
+    NRF24_UNSET_STATUS(hnrf24, NRF24_STATUS_TRANSMITTING);
+    return HAL_OK;
+  }
+
+  // wait interrupt
+  while(1) {
+    if (withAcK || !NRF24_IS(hnrf24->feature, NRF24_FEATURE_EN_DYN_ACK)){
+      NRF24_SetMode(hnrf24, NRF24_MODE_RX);
+    }
+    if (NRF24_IS_STATUS(hnrf24, NRF24_STATUS_TRANSMITTING)) {
+      if (NRF24_GetTick() - tick > hnrf24->sendingTimeout) {
+        return result;
+      }
+      // retransmitting
+      NRF24_SetMode(hnrf24, NRF24_MODE_TX);
+      continue;
+    }
+    break;
+  }
+
+  if (NRF24_IS_STATUS(hnrf24, NRF24_STATUS_TRANSMITTED)) {
+    NRF24_UNSET_STATUS(hnrf24, NRF24_STATUS_TRANSMITTED);
+    result = HAL_OK;
+  } else {
+    result = HAL_ERROR;
+  }
+  return result;
 }
 
 
 void NRF24_SendDataNoAck(NRF24_HandlerTypedef *hnrf24, uint8_t *data, uint8_t size)
 {
-  if (size != hnrf24->txPayloadWidth) size = hnrf24->txPayloadWidth;
   NRF24_WritePayloadNoAck(hnrf24, data, size);
-//  NRF24_FlushTx(hnrf24);
   NRF24_SetMode(hnrf24, NRF24_MODE_TX);
 }
 
@@ -272,15 +322,39 @@ void NRF24_FlushData(NRF24_HandlerTypedef *hnrf24)
 }
 
 
-uint8_t NRF24_InterruptHandler(NRF24_HandlerTypedef *hnrf24)
+void NRF24_EnableIrq(NRF24_HandlerTypedef *hnrf24, NRF24_Irq irq)
+{
+  uint8_t config;
+  hnrf24->irqEnabled |= irq;
+
+  NRF24_ReadRegister(hnrf24, NRF24_ADDR_CONFIG, &config);
+  config &= ~(hnrf24->irqEnabled & 0x70);
+  NRF24_WriteRegister(hnrf24, NRF24_ADDR_CONFIG, &config);
+}
+
+
+void NRF24_DisableIrq(NRF24_HandlerTypedef *hnrf24, NRF24_Irq irq)
+{
+  uint8_t config;
+  hnrf24->irqEnabled &= ~(irq);
+
+  NRF24_ReadRegister(hnrf24, NRF24_ADDR_CONFIG, &config);
+  config &= ~(hnrf24->irqEnabled & 0x70);
+  NRF24_WriteRegister(hnrf24, NRF24_ADDR_CONFIG, &config);
+}
+
+
+NRF24_Irq NRF24_IrqHandler(NRF24_HandlerTypedef *hnrf24)
 {
   uint8_t nrf_status;
   uint8_t tmpData[32];
   uint8_t payloadWidth;
   uint8_t pipeIndex;
+  NRF24_Irq irq = 0;
 
   NRF24_ReadRegister(hnrf24, NRF24_ADDR_STATUS, &nrf_status);
   pipeIndex = (nrf_status & NRF24_STATUS_RX_P_NO);
+
   if (NRF24_IS(nrf_status, NRF24_STATUS_RX_DR) && pipeIndex != NRF24_STATUS_RX_FIFO_EMPTY) {
     // pipe index shift from NRF24_STATUS_RX_P_NO to get index number;
     pipeIndex = pipeIndex >> 1;
@@ -289,24 +363,33 @@ uint8_t NRF24_InterruptHandler(NRF24_HandlerTypedef *hnrf24)
     payloadWidth = NRF24_ReadPayload(hnrf24, pipeIndex, tmpData);
 
     // reset interupt
-    NRF24_ResetInterupt(hnrf24, NRF24_STATUS_RX_DR);
+    NRF24_ResetIrq(hnrf24, NRF24_IRQ_RX);
     writeBuffer(&(hnrf24->buffer), tmpData, payloadWidth);
+    irq = NRF24_IRQ_RX;
   }
 
   if (NRF24_IS(nrf_status, NRF24_STATUS_TX_DS)) {
-    NRF24_ResetInterupt(hnrf24, NRF24_STATUS_TX_DS);
+    NRF24_ResetIrq(hnrf24, NRF24_IRQ_TX);
     NRF24_FlushTx(hnrf24);
+    NRF24_SET_STATUS(hnrf24, NRF24_STATUS_TRANSMITTED);
     NRF24_UNSET_STATUS(hnrf24, NRF24_STATUS_TRANSMITTING);
+    irq = NRF24_IRQ_TX;
   }
-  return nrf_status;
+
+  if (NRF24_IS(nrf_status, NRF24_STATUS_MAX_RT)) {
+    NRF24_ResetIrq(hnrf24, NRF24_IRQ_MAX_RT);
+//    NRF24_UNSET_STATUS(hnrf24, NRF24_STATUS_TRANSMITTING);
+    irq = NRF24_IRQ_MAX_RT;
+  }
+  return irq;
 }
 
 
-void NRF24_ResetInterupt(NRF24_HandlerTypedef *hnrf24, uint8_t interupt_register)
+void NRF24_ResetIrq(NRF24_HandlerTypedef *hnrf24, NRF24_Irq irq)
 {
   uint8_t nrf_status;
   NRF24_ReadRegister(hnrf24, NRF24_ADDR_STATUS, &nrf_status);
-  nrf_status |= interupt_register;
+  nrf_status |= irq & 0x70;
   NRF24_WriteRegister(hnrf24, NRF24_ADDR_STATUS, &nrf_status);
 }
 

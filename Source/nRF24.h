@@ -16,6 +16,7 @@
 #define NRF24_PIPE_WIDTH 0x3F
 
 #define NRF24_STATUS_TRANSMITTING 0x01
+#define NRF24_STATUS_TRANSMITTED 0x02
 
 #define NRF24_CMD_R_REGISTER 0x00
 #define NRF24_CMD_W_REGISTER 0x20
@@ -75,6 +76,10 @@
 #define NRF24_STATUS_RX_FIFO_EMPTY 0x0E
 #define NRF24_STATUS_TX_FULL 0x01
 
+#define NRF24_IRQ_RX 0x40
+#define NRF24_IRQ_TX 0x20
+#define NRF24_IRQ_MAX_RT 0x10
+
 #define NRF24_FEATURE_EN_DPL 0x04
 #define NRF24_FEATURE_EN_ACK_PAY 0x02
 #define NRF24_FEATURE_EN_DYN_ACK 0x01
@@ -94,6 +99,7 @@
 //#define NRF24_GPIO_RESET(pin) (HAL_GPIO_WritePin((pin).GPIOx, (pin).GPIO_Pin, GPIO_PIN_RESET))
 
 typedef uint8_t NRF24_Mode;
+typedef uint8_t NRF24_Irq;
 
 struct NRF24_GPIO_pin {
   GPIO_TypeDef *GPIOx;
@@ -113,6 +119,7 @@ typedef struct NRF24_Pipe {
 } NRF24_Pipe;
 
 typedef struct NRF24_Handler {
+  NRF24_Mode mode;
   uint8_t status;
 
   // pin
@@ -127,12 +134,14 @@ typedef struct NRF24_Handler {
   uint8_t datarate;                   // reg: RF_SETUP (#5 #3)
   uint8_t power;                      // reg: RF_SETUP (#2 #1)
   uint8_t retransmitDelay;        		// reg: SETUP_RETR (#7:4)
-  uint8_t retransmitMax;          		// reg: SETUP_RETR (#7:4)
+  uint8_t retransmitCount;          		// reg: SETUP_RETR (#7:4)
   uint8_t txAddress;            	    // reg: TX_ADDR
   uint8_t txPayloadWidth;
   uint8_t pipeNumber;
   NRF24_Pipe pipe[NRF24_PIPE_NUMBER];
   uint8_t feature;
+  NRF24_Irq irqEnabled;
+  uint32_t sendingTimeout;
   // struct {
   //   uint8_t isDynamicPayloadLen;
   //   uint8_t isEnableAckPayload;
@@ -147,6 +156,7 @@ typedef struct NRF24_Handler {
 // setup
 void NRF24_SetupFeature(NRF24_HandlerTypedef *hnrf24, uint8_t feature);
 void NRF24_Wait(uint32_t ms);
+uint32_t NRF24_GetTick(void);
 
 // running proccess
 
@@ -156,12 +166,14 @@ void NRF24_SetPipe(NRF24_HandlerTypedef *hnrf24,
                      uint8_t pipeIndex, uint8_t setup, uint8_t width, uint8_t *addr);
 void NRF24_SetTxAddress(NRF24_HandlerTypedef *hnrf24, uint8_t *addr);
 void NRF24_SetMode(NRF24_HandlerTypedef *hnrf24, NRF24_Mode mode);
-void NRF24_SendData(NRF24_HandlerTypedef *hnrf24, uint8_t *data, uint8_t size);
+HAL_StatusTypeDef NRF24_SendData(NRF24_HandlerTypedef *hnrf24, uint8_t *data, uint8_t size, uint8_t withAcK);
 void NRF24_SendDataNoAck(NRF24_HandlerTypedef *hnrf24, uint8_t *data, uint8_t size);
 uint8_t NRF24_ReadData(NRF24_HandlerTypedef *hnrf24, uint8_t *data, uint8_t size);
 void NRF24_FlushData(NRF24_HandlerTypedef *hnrf24);
-uint8_t NRF24_InterruptHandler(NRF24_HandlerTypedef *hnrf24);
-void NRF24_ResetInterupt(NRF24_HandlerTypedef *hnrf24, uint8_t interupt_register);
+void NRF24_EnableIrq(NRF24_HandlerTypedef *hnrf24, NRF24_Irq);
+void NRF24_DisableIrq(NRF24_HandlerTypedef *hnrf24, NRF24_Irq);
+void NRF24_ResetIrq(NRF24_HandlerTypedef *hnrf24, NRF24_Irq);
+NRF24_Irq NRF24_IrqHandler(NRF24_HandlerTypedef *hnrf24);
 
 // spi command
 
