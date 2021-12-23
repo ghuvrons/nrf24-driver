@@ -5,8 +5,8 @@
  *      Author: janoko
  */
 
-#ifndef DRIVER_INC_NRF24_H_
-#define DRIVER_INC_NRF24_H_
+#ifndef DRIVER_NRF24_H_
+#define DRIVER_NRF24_H_
 
 #include "stm32f4xx_hal.h"
 #include "nRF24_conf.h"
@@ -160,7 +160,7 @@ uint32_t NRF24_GetTick(void);
 
 // running proccess
 
-void NRF24_Init(NRF24_HandlerTypedef *hnrf24);
+HAL_StatusTypeDef NRF24_Init(NRF24_HandlerTypedef *hnrf24);
 HAL_StatusTypeDef NRF24_Check(NRF24_HandlerTypedef *hnrf24);
 void NRF24_SetPipe(NRF24_HandlerTypedef *hnrf24,
                      uint8_t pipeIndex, uint8_t setup, uint8_t width, uint8_t *addr);

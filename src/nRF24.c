@@ -1,3 +1,5 @@
+#include "nRF24.h"
+
 /*
  * nRF24.c
  *
@@ -8,8 +10,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 #include "nRF24_conf.h"
-#include "nRF24.h"
 
 
 static void sendCommand(NRF24_HandlerTypedef *hnrf24, uint8_t command, uint8_t *pTxData, uint8_t *pRxData, uint16_t size);
@@ -54,9 +56,13 @@ __weak uint32_t NRF24_GetTick(void)
   * 
   * @retval None
   */
-void NRF24_Init(NRF24_HandlerTypedef *hnrf24)
+HAL_StatusTypeDef NRF24_Init(NRF24_HandlerTypedef *hnrf24)
 {
   uint8_t tmp_reg;
+
+  HAL_StatusTypeDef checkStatus = NRF24_Check(hnrf24);
+  if (checkStatus != HAL_OK) return checkStatus;
+
   NRF24_SetMode(hnrf24, NRF24_MODE_PWR_DOWN);
 
   // set channel and frequency
@@ -97,6 +103,8 @@ void NRF24_Init(NRF24_HandlerTypedef *hnrf24)
 
   // set to standby
   NRF24_SetMode(hnrf24, NRF24_MODE_STANDBY_1);
+
+  return HAL_OK;
 }
 
 
