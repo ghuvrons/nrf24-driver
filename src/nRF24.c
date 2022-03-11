@@ -480,6 +480,9 @@ static void sendCommand(NRF24_HandlerTypedef *hnrf24, uint8_t command, uint8_t *
 {
   uint8_t tmp_pRxData[1+size];
   uint8_t tmp_pTxData[1+size];
+
+  if (hnrf24->hspi == 0) return;
+
   tmp_pTxData[0] = command;
 
   // if transmit pointer data is not null
