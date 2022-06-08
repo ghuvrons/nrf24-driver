@@ -71,9 +71,6 @@ HAL_StatusTypeDef NRF24_Init(NRF24_HandlerTypedef *hnrf24)
   }
   NRF24_WriteRegister(hnrf24, NRF24_ADDR_RF_CH, &(hnrf24->channel));
 
-  tmp_reg = 0;
-  NRF24_ReadRegister(hnrf24, NRF24_ADDR_RF_CH, &(tmp_reg));
-
   // set data rate
   tmp_reg = 0;
   NRF24_ReadRegister(hnrf24, NRF24_ADDR_RF_SETUP, &(tmp_reg));
