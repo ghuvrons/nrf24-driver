@@ -44,18 +44,21 @@ void NRF24_SetupFeature(NRF24_HandlerTypedef *hnrf24, uint8_t feature)
   * 
   * @retval None
   */
-NRF24_Status_t NRF24_Init(NRF24_HandlerTypedef *hnrf24)
+NRF24_Status_t NRF24_Init(NRF24_HandlerTypedef *hnrf24, uint32_t timeout)
 {
   uint8_t tmp_reg;
+  uint32_t tick = hnrf24->getTick();
 
-  if (hnrf24->delay == 0) return NRF24_ERROR;
-  if (hnrf24->getTick == 0) return NRF24_ERROR;
-  if (hnrf24->enableCE == 0) return NRF24_ERROR;
-  if (hnrf24->spi.device == 0) return NRF24_ERROR;
+  if (hnrf24->delay == 0)               return NRF24_ERROR;
+  if (hnrf24->getTick == 0)             return NRF24_ERROR;
+  if (hnrf24->enableCE == 0)            return NRF24_ERROR;
+  if (hnrf24->spi.device == 0)          return NRF24_ERROR;
   if (hnrf24->spi.transmitReceive == 0) return NRF24_ERROR;
 
-  NRF24_Status_t checkStatus = NRF24_Check(hnrf24);
-  if (checkStatus != NRF24_OK) return checkStatus;
+  while (NRF24_Check(hnrf24) != NRF24_OK) {
+    if ((hnrf24->getTick() - tick) > timeout) return NRF24_ERROR;
+    hnrf24->delay(10);
+  };
 
   NRF24_SetMode(hnrf24, NRF24_MODE_PWR_DOWN);
 

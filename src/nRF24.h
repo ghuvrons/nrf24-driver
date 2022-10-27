@@ -164,7 +164,7 @@ void NRF24_SetupFeature(NRF24_HandlerTypedef *hnrf24, uint8_t feature);
 
 // running proccess
 
-NRF24_Status_t NRF24_Init(NRF24_HandlerTypedef *hnrf24);
+NRF24_Status_t NRF24_Init(NRF24_HandlerTypedef *hnrf24, uint32_t timeout);
 NRF24_Status_t NRF24_Check(NRF24_HandlerTypedef *hnrf24);
 void NRF24_SetPipe(NRF24_HandlerTypedef *hnrf24,
                      uint8_t pipeIndex, uint8_t setup, uint8_t width, uint8_t *addr);
