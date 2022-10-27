@@ -1,4 +1,3 @@
-#include "nRF24.h"
 
 /*
  * nRF24.c
@@ -7,11 +6,10 @@
  *      Author: janoko
  */
 
+#include "nRF24.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include "nRF24_conf.h"
 
 
 static void sendCommand(NRF24_HandlerTypedef *hnrf24, uint8_t command, uint8_t *pTxData, uint8_t *pRxData, uint16_t size);
@@ -37,16 +35,6 @@ void NRF24_SetupFeature(NRF24_HandlerTypedef *hnrf24, uint8_t feature)
   hnrf24->feature |= feature;
 }
 
-__weak void NRF24_Wait(uint32_t ms)
-{
-  HAL_Delay(ms);
-}
-
-__weak uint32_t NRF24_GetTick(void)
-{
-  return HAL_GetTick();
-}
-
 /**
   * @brief  Initialing nrf24.
   *
@@ -56,12 +44,18 @@ __weak uint32_t NRF24_GetTick(void)
   * 
   * @retval None
   */
-HAL_StatusTypeDef NRF24_Init(NRF24_HandlerTypedef *hnrf24)
+NRF24_Status_t NRF24_Init(NRF24_HandlerTypedef *hnrf24)
 {
   uint8_t tmp_reg;
 
-  HAL_StatusTypeDef checkStatus = NRF24_Check(hnrf24);
-  if (checkStatus != HAL_OK) return checkStatus;
+  if (hnrf24->delay == 0) return NRF24_ERROR;
+  if (hnrf24->getTick == 0) return NRF24_ERROR;
+  if (hnrf24->enableCE == 0) return NRF24_ERROR;
+  if (hnrf24->spi.device == 0) return NRF24_ERROR;
+  if (hnrf24->spi.transmitReceive == 0) return NRF24_ERROR;
+
+  NRF24_Status_t checkStatus = NRF24_Check(hnrf24);
+  if (checkStatus != NRF24_OK) return checkStatus;
 
   NRF24_SetMode(hnrf24, NRF24_MODE_PWR_DOWN);
 
@@ -101,11 +95,11 @@ HAL_StatusTypeDef NRF24_Init(NRF24_HandlerTypedef *hnrf24)
   // set to standby
   NRF24_SetMode(hnrf24, NRF24_MODE_STANDBY_1);
 
-  return HAL_OK;
+  return NRF24_OK;
 }
 
 
-HAL_StatusTypeDef NRF24_Check(NRF24_HandlerTypedef *hnrf24)
+NRF24_Status_t NRF24_Check(NRF24_HandlerTypedef *hnrf24)
 {
   uint8_t wData[5] = "nrf24";
   uint8_t rData[5] = {0};
@@ -113,9 +107,9 @@ HAL_StatusTypeDef NRF24_Check(NRF24_HandlerTypedef *hnrf24)
   NRF24_WriteRegister(hnrf24, NRF24_ADDR_TX_ADDR, wData);
   NRF24_ReadRegister(hnrf24, NRF24_ADDR_TX_ADDR, &(rData[0]));
   if (strncmp((char*)rData, (char*)wData, 5) == 0) {
-    return HAL_OK;
+    return NRF24_OK;
   }
-  return HAL_ERROR;
+  return NRF24_ERROR;
 }
 
 
@@ -203,7 +197,7 @@ void NRF24_SetMode(NRF24_HandlerTypedef *hnrf24, NRF24_Mode mode)
       config_reg &= ~((uint8_t) 0x02);
       NRF24_WriteRegister(hnrf24, NRF24_ADDR_CONFIG, &config_reg);
     }
-    HAL_GPIO_WritePin((hnrf24->pin.CE).GPIOx, (hnrf24->pin.CE).GPIO_Pin, GPIO_PIN_RESET);
+    hnrf24->enableCE(0);
     break;
 
   case NRF24_MODE_STANDBY_1:
@@ -212,7 +206,7 @@ void NRF24_SetMode(NRF24_HandlerTypedef *hnrf24, NRF24_Mode mode)
       config_reg &= ~((uint8_t) 0x01);
       NRF24_WriteRegister(hnrf24, NRF24_ADDR_CONFIG, &config_reg);
     }
-    HAL_GPIO_WritePin((hnrf24->pin.CE).GPIOx, (hnrf24->pin.CE).GPIO_Pin, GPIO_PIN_RESET);
+    hnrf24->enableCE(0);
     break;
 
   case NRF24_MODE_TX:
@@ -221,7 +215,7 @@ void NRF24_SetMode(NRF24_HandlerTypedef *hnrf24, NRF24_Mode mode)
       config_reg &= ~((uint8_t) 0x01);
       NRF24_WriteRegister(hnrf24, NRF24_ADDR_CONFIG, &config_reg);
     }
-    HAL_GPIO_WritePin((hnrf24->pin.CE).GPIOx, (hnrf24->pin.CE).GPIO_Pin, GPIO_PIN_SET);
+    hnrf24->enableCE(1);
     break;
 
   case NRF24_MODE_RX:
@@ -230,28 +224,28 @@ void NRF24_SetMode(NRF24_HandlerTypedef *hnrf24, NRF24_Mode mode)
       config_reg |= (uint8_t) 1;
       NRF24_WriteRegister(hnrf24, NRF24_ADDR_CONFIG, &config_reg);
     }
-    HAL_GPIO_WritePin((hnrf24->pin.CE).GPIOx, (hnrf24->pin.CE).GPIO_Pin, GPIO_PIN_SET);
+    hnrf24->enableCE(1);
     break;
   }
 
-  if (hnrf24->mode == NRF24_MODE_PWR_DOWN) NRF24_Wait(1);
-  NRF24_Wait(1);
+  if (hnrf24->mode == NRF24_MODE_PWR_DOWN) hnrf24->delay(1);
+  hnrf24->delay(1);
   hnrf24->mode = mode;
 }
 
 
-HAL_StatusTypeDef NRF24_SendData(NRF24_HandlerTypedef *hnrf24, uint8_t *data, uint8_t size, uint8_t withAcK)
+NRF24_Status_t NRF24_SendData(NRF24_HandlerTypedef *hnrf24, uint8_t *data, uint8_t size, uint8_t withAcK)
 {
-  HAL_StatusTypeDef result = HAL_TIMEOUT;
-  uint32_t tick = NRF24_GetTick();
+  NRF24_Status_t result = NRF24_TIMEOUT;
+  uint32_t tick = hnrf24->getTick();
 
   while ( NRF24_IS_STATUS(hnrf24, NRF24_STATUS_TRANSMITTING) ||
           NRF24_IS_STATUS(hnrf24, NRF24_STATUS_TRANSMITTED)
   ) {
-    if (NRF24_GetTick() - tick > hnrf24->sendingTimeout) {
+    if (hnrf24->getTick() - tick > hnrf24->sendingTimeout) {
       return result;
     }
-    NRF24_Wait(1);
+    hnrf24->delay(1);
   }
 
   NRF24_SET_STATUS(hnrf24, NRF24_STATUS_TRANSMITTING);
@@ -266,7 +260,7 @@ HAL_StatusTypeDef NRF24_SendData(NRF24_HandlerTypedef *hnrf24, uint8_t *data, ui
   // if interrupt is disable
   if (!NRF24_IS(hnrf24->irqEnabled, NRF24_IRQ_TX)) {
     NRF24_UNSET_STATUS(hnrf24, NRF24_STATUS_TRANSMITTING);
-    return HAL_OK;
+    return NRF24_OK;
   }
 
   // wait interrupt
@@ -275,7 +269,7 @@ HAL_StatusTypeDef NRF24_SendData(NRF24_HandlerTypedef *hnrf24, uint8_t *data, ui
       NRF24_SetMode(hnrf24, NRF24_MODE_RX);
     }
     if (NRF24_IS_STATUS(hnrf24, NRF24_STATUS_TRANSMITTING)) {
-      if (NRF24_GetTick() - tick > hnrf24->sendingTimeout) {
+      if (hnrf24->getTick() - tick > hnrf24->sendingTimeout) {
         return result;
       }
       // retransmitting
@@ -287,9 +281,9 @@ HAL_StatusTypeDef NRF24_SendData(NRF24_HandlerTypedef *hnrf24, uint8_t *data, ui
 
   if (NRF24_IS_STATUS(hnrf24, NRF24_STATUS_TRANSMITTED)) {
     NRF24_UNSET_STATUS(hnrf24, NRF24_STATUS_TRANSMITTED);
-    result = HAL_OK;
+    result = NRF24_OK;
   } else {
-    result = HAL_ERROR;
+    result = NRF24_ERROR;
   }
   return result;
 }
@@ -314,7 +308,7 @@ uint8_t NRF24_ReadData(NRF24_HandlerTypedef *hnrf24, uint8_t *data, uint8_t size
     size -= bufLen;
     maxTry--;
     if (!maxTry) break;
-    if (size) NRF24_Wait(10);
+    if (size) hnrf24->delay(10);
   }
   return readLen;
 }
@@ -475,35 +469,25 @@ void NRF24_WriteAck(NRF24_HandlerTypedef *hnrf24, uint8_t *value, uint8_t size)
 
 static void sendCommand(NRF24_HandlerTypedef *hnrf24, uint8_t command, uint8_t *pTxData, uint8_t *pRxData, uint16_t size)
 {
-  uint8_t tmp_pRxData[1+size];
-  uint8_t tmp_pTxData[1+size];
-
-  if (hnrf24->hspi == 0) return;
-
-  tmp_pTxData[0] = command;
+  hnrf24->tmp_txData[0] = command;
 
   // if transmit pointer data is not null
   for (uint16_t i = 1; i <= size; i++) {
     if (pTxData != NULL) {
-      tmp_pTxData[i] = *pTxData;
+      hnrf24->tmp_txData[i] = *pTxData;
       pTxData++;
     }
     else {
-      tmp_pTxData[i] = 0;
+      hnrf24->tmp_txData[i] = 0;
     }
   }
 
-  while (__HAL_SPI_GET_FLAG(hnrf24->hspi, SPI_FLAG_BSY)) {
-    NRF24_Wait(1);
-  };
-  HAL_GPIO_WritePin((hnrf24->pin.CSN).GPIOx, (hnrf24->pin.CSN).GPIO_Pin, GPIO_PIN_RESET);
-  HAL_SPI_TransmitReceive(hnrf24->hspi, tmp_pTxData, tmp_pRxData, 1 + size, HAL_MAX_DELAY);
-  HAL_GPIO_WritePin((hnrf24->pin.CSN).GPIOx, (hnrf24->pin.CSN).GPIO_Pin, GPIO_PIN_SET);
+  hnrf24->spi.transmitReceive(hnrf24->spi.device, &hnrf24->tmp_txData[0], &hnrf24->tmp_rxData[0], 1 + size, 10000);
   
   // if recive pointer data is not null
   if (pRxData != NULL && size != 0) {
     for (uint16_t i = 1; i <= size; i++) {
-      *pRxData = tmp_pRxData[i];
+      *pRxData = hnrf24->tmp_rxData[i];
       pRxData++;
     }
   }
@@ -513,6 +497,7 @@ static void sendCommand(NRF24_HandlerTypedef *hnrf24, uint8_t command, uint8_t *
 static uint8_t writeBuffer(NRF24_Buffer *buffer, uint8_t *data, uint8_t size)
 {
   uint8_t wroteSize = 0;
+
   while (buffer->length < NRF24_BUFFER_SIZE && size) {
     buffer->buf[buffer->posWrite] = *data;
 

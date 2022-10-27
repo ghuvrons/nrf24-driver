@@ -8,8 +8,8 @@
 #ifndef DRIVER_NRF24_H_
 #define DRIVER_NRF24_H_
 
-#include "stm32f4xx_hal.h"
 #include "nRF24_conf.h"
+#include <stdint.h>
 
 #define NRF24_PIPE_ENABLE 0x80
 #define NRF24_PIPE_ENABLE_AUTO_ACK 0x40
@@ -100,11 +100,13 @@
 
 typedef uint8_t NRF24_Mode;
 typedef uint8_t NRF24_Irq;
-
-struct NRF24_GPIO_pin {
-  GPIO_TypeDef *GPIOx;
-  uint16_t GPIO_Pin;
-};
+typedef enum {
+  NRF24_OK,
+  NRF24_ERROR,
+  NRF24_BUSY     = 0x02,
+  NRF24_TIMEOUT  = 0x03
+}
+NRF24_Status_t;
 
 typedef struct NRF24_Buffer {
   uint8_t buf[NRF24_BUFFER_SIZE];
@@ -122,12 +124,14 @@ typedef struct NRF24_Handler {
   NRF24_Mode mode;
   uint8_t status;
 
-  // pin
-  SPI_HandleTypeDef *hspi;
+  void (*delay)(uint32_t ms);
+  uint32_t (*getTick)(void);
+  void (*enableCE)(uint8_t);
+
   struct {
-    struct NRF24_GPIO_pin CSN;
-    struct NRF24_GPIO_pin CE;
-  } pin;
+    void *device;
+    void (*transmitReceive)(void*, uint8_t *tdata, uint8_t *rdata, uint8_t sz, uint32_t timeout);
+  } spi;
 
   // configuration
   uint8_t channel;              		  // reg: RF_CH
@@ -150,23 +154,23 @@ typedef struct NRF24_Handler {
 
   // buffer
   NRF24_Buffer buffer;
+  uint8_t tmp_txData[32];
+  uint8_t tmp_rxData[32];
 
 } NRF24_HandlerTypedef;
 
 // setup
 void NRF24_SetupFeature(NRF24_HandlerTypedef *hnrf24, uint8_t feature);
-void NRF24_Wait(uint32_t ms);
-uint32_t NRF24_GetTick(void);
 
 // running proccess
 
-HAL_StatusTypeDef NRF24_Init(NRF24_HandlerTypedef *hnrf24);
-HAL_StatusTypeDef NRF24_Check(NRF24_HandlerTypedef *hnrf24);
+NRF24_Status_t NRF24_Init(NRF24_HandlerTypedef *hnrf24);
+NRF24_Status_t NRF24_Check(NRF24_HandlerTypedef *hnrf24);
 void NRF24_SetPipe(NRF24_HandlerTypedef *hnrf24,
                      uint8_t pipeIndex, uint8_t setup, uint8_t width, uint8_t *addr);
 void NRF24_SetTxAddress(NRF24_HandlerTypedef *hnrf24, uint8_t *addr);
 void NRF24_SetMode(NRF24_HandlerTypedef *hnrf24, NRF24_Mode mode);
-HAL_StatusTypeDef NRF24_SendData(NRF24_HandlerTypedef *hnrf24, uint8_t *data, uint8_t size, uint8_t withAcK);
+NRF24_Status_t NRF24_SendData(NRF24_HandlerTypedef *hnrf24, uint8_t *data, uint8_t size, uint8_t withAcK);
 void NRF24_SendDataNoAck(NRF24_HandlerTypedef *hnrf24, uint8_t *data, uint8_t size);
 uint8_t NRF24_ReadData(NRF24_HandlerTypedef *hnrf24, uint8_t *data, uint8_t size);
 void NRF24_FlushData(NRF24_HandlerTypedef *hnrf24);
